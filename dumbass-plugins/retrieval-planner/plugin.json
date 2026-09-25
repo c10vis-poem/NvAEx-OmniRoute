@@ -1,0 +1,13 @@
+{
+  "name": "retrieval-planner",
+  "version": "0.1.0",
+  "description": "Routing-time retrieval: picks which D.U.M.B.A.S.S. arms a request needs (mem0 episodic, Terrestrial Brain corpus, code-review-graph code) — any, all, or none — queries them in parallel and injects results sized to the target model's context window.",
+  "author": "c10vis-poem",
+  "license": "MIT",
+  "main": "index.mjs",
+  "source": "local",
+  "tags": ["dumbass", "retrieval", "rag"],
+  "hooks": { "onRequest": true },
+  "requires": { "permissions": ["network", "file-read"] },
+  "enabledByDefault": false
+}

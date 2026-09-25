@@ -1,0 +1,18 @@
+{
+  "name": "reasoning-bank",
+  "version": "0.1.0",
+  "description": "Trajectory ledger: one JSONL record per request (model, harness, session, retrieval decisions, tool calls, usage, timing, outcome). Records are candidates; promotion to verified success needs evidence.",
+  "author": "c10vis-poem",
+  "license": "MIT",
+  "main": "index.mjs",
+  "source": "local",
+  "tags": ["dumbass", "ledger", "rlvr"],
+  "hooks": { "onRequest": true, "onResponse": true, "onError": true, "onStreamComplete": true },
+  "requires": { "permissions": ["file-write"] },
+  "enabledByDefault": false,
+  "configSchema": {
+    "enabled": { "type": "boolean", "default": true, "description": "No-op when false" },
+    "dataDir": { "type": "string", "default": "/app/data/dumbass/reasoning_bank", "description": "Ledger root (candidates/, failure_logs/)" },
+    "excerptChars": { "type": "number", "default": 300, "min": 0, "max": 4000, "description": "Chars of prompt/answer kept per record (0 = none)" }
+  }
+}
