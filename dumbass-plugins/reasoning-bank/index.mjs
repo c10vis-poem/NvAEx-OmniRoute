@@ -21,10 +21,18 @@ export async function settings() {
   return cached;
 }
 
-// onResponse arrives as { ctx: { ...ctx, response } }; onRequest/onStreamComplete arrive flat.
+// onResponse arrives as { ctx: { ...ctx, response } } and chatCore wraps the reply as
+// { status, data, streamed } (open-sse/handlers/chatCore/pluginOnResponse.ts); others arrive flat.
 export function unwrap(p) {
   const ctx = p?.ctx && typeof p.ctx === "object" ? p.ctx : p;
-  return { ctx, response: p?.response ?? ctx?.response };
+  const envelope = p?.response ?? ctx?.response;
+  const wrapped = envelope && typeof envelope === "object" && "status" in envelope && ("data" in envelope || "streamed" in envelope);
+  return {
+    ctx,
+    response: wrapped ? envelope.data : envelope,
+    status: wrapped ? envelope.status : undefined,
+    streamed: wrapped ? envelope.streamed === true : undefined,
+  };
 }
 
 const open = new Map(); // requestId -> partial record; the plugin is a long-lived child process
@@ -78,7 +86,7 @@ export async function onRequest(payload) {
 }
 
 export async function onResponse(payload) {
-  const { ctx, response: r } = unwrap(payload);
+  const { ctx, response: r, status, streamed } = unwrap(payload);
   const cfg = await settings();
   if (cfg.enabled === false) return;
   const rec = open.get(ctx?.requestId);
@@ -87,16 +95,17 @@ export async function onResponse(payload) {
   const answer = r?.choices?.[0]?.message?.content;
   Object.assign(rec, {
     finishedAt: new Date().toISOString(),
-    outcome: "completed-unverified",
+    status: status ?? null,
+    outcome: status >= 400 ? "failed" : "completed-unverified",
     finishReason: r?.choices?.[0]?.finish_reason ?? r?.stop_reason ?? null,
     toolCalls: toolCallNames(r),
     usage: r?.usage ?? rec.usage ?? null,
     answer: n && typeof answer === "string" ? answer.slice(0, n) : undefined,
   });
   // Streaming responses finish in onStreamComplete (usage/timing); non-streaming ones finish here.
-  if (r?.usage) {
+  if (!streamed) {
     open.delete(ctx.requestId);
-    await write(cfg, "candidates", rec);
+    await write(cfg, rec.outcome === "failed" ? "failure_logs" : "candidates", rec);
   }
 }
 

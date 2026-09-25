@@ -20,10 +20,18 @@ export async function settings() {
   return cached;
 }
 
-// onResponse arrives as { ctx: { ...ctx, response } }; onRequest/onStreamComplete arrive flat.
+// onResponse arrives as { ctx: { ...ctx, response } } and chatCore wraps the reply as
+// { status, data, streamed } (open-sse/handlers/chatCore/pluginOnResponse.ts); others arrive flat.
 export function unwrap(p) {
   const ctx = p?.ctx && typeof p.ctx === "object" ? p.ctx : p;
-  return { ctx, response: p?.response ?? ctx?.response };
+  const envelope = p?.response ?? ctx?.response;
+  const wrapped = envelope && typeof envelope === "object" && "status" in envelope && ("data" in envelope || "streamed" in envelope);
+  return {
+    ctx,
+    response: wrapped ? envelope.data : envelope,
+    status: wrapped ? envelope.status : undefined,
+    streamed: wrapped ? envelope.streamed === true : undefined,
+  };
 }
 
 const MARK = "[continual-harness checkpoint]";

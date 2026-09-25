@@ -29,7 +29,9 @@ const ctx = (over = {}) => ({
   metadata: {},
   ...over,
 });
-const reply = { choices: [{ message: { content: "We moved to x86." }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 5 } };
+const replyData = { choices: [{ message: { content: "We moved to x86." }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 5 } };
+// Real chatCore envelope (open-sse/handlers/chatCore/pluginOnResponse.ts)
+const reply = { status: 200, data: replyData, streamed: false };
 
 test("continual-harness: no checkpoint first, injects after a response, rolls back by n", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "ch-"));
@@ -41,6 +43,7 @@ test("continual-harness: no checkpoint first, injects after a response, rolls ba
     assert.equal(r.metadata.continualHarness.checkpoint, 2);
     assert.match(r.body.messages[0].content, /^\[continual-harness checkpoint\]/);
     assert.match(r.body.messages[0].content, /second/);
+    assert.match(r.body.messages[0].content, /We moved to x86/); // answers are captured from the envelope
     const back = await ch.onRequest(ctx({ headers: { "x-dumbass-session": "s1", "x-dumbass-checkpoint": "1" } }));
     assert.equal(back.metadata.continualHarness.checkpoint, 1);
     assert.equal(back.metadata.continualHarness.rolledBack, 1);
@@ -71,6 +74,31 @@ test("reasoning-bank: non-streaming request writes one candidate", async () => {
     assert.equal(rec.harness, "claude-code");
     assert.deepEqual(rec.retrieval.arms, ["memory"]);
     assert.equal(rec.usage.completion_tokens, 5);
+  });
+  await rm(dir, { recursive: true });
+});
+
+test("reasoning-bank: non-streaming 5xx response goes to failure_logs", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "rb-"));
+  await withConfig("reasoning-bank", { dataDir: dir }, async (rb) => {
+    await rb.onRequest(ctx({ requestId: "req-3" }));
+    await rb.onResponse({ ctx: { ...ctx({ requestId: "req-3" }), response: { status: 503, data: { error: "x" }, streamed: false } } });
+    assert.deepEqual(await readdir(dir), ["failure_logs"]);
+  });
+  await rm(dir, { recursive: true });
+});
+
+test("reasoning-bank: streamed response waits for onStreamComplete", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "rb-"));
+  await withConfig("reasoning-bank", { dataDir: dir }, async (rb) => {
+    await rb.onRequest(ctx({ requestId: "req-4" }));
+    await rb.onResponse({ ctx: { ...ctx({ requestId: "req-4" }), response: { status: 200, streamed: true } } });
+    assert.deepEqual(await readdir(dir), []);
+    await rb.onStreamComplete({ requestId: "req-4", status: 200, usage: { completion_tokens: 7 }, timing: { latencyMs: 900 } });
+    const [f] = await readdir(path.join(dir, "candidates"));
+    const rec = JSON.parse((await readFile(path.join(dir, "candidates", f), "utf8")).trim());
+    assert.equal(rec.usage.completion_tokens, 7);
+    assert.equal(rec.timing.latencyMs, 900);
   });
   await rm(dir, { recursive: true });
 });
