@@ -173,6 +173,25 @@ export async function onRequest(payload) {
   const promptChars = JSON.stringify(messages).length;
   const budget = budgetTokens(ctx.model, promptChars, cfg);
   const meta = { arms, reason, budgetTokens: budget, injectedTokens: 0, errors: {} };
+
+  // Pre-flight: x-dumbass-plan-only returns the route plan and stops before any model call,
+  // so a harness (Task Observer) can show/log it and then send the real request.
+  const planOnly = String(ctx?.headers?.["x-dumbass-plan-only"] ?? "").toLowerCase();
+  if (["1", "true", "yes"].includes(planOnly)) {
+    return {
+      blocked: true,
+      response: {
+        object: "dumbass.plan",
+        requestId: ctx.requestId ?? null,
+        model: ctx.model ?? null,
+        provider: ctx.provider ?? null,
+        session: ctx?.headers?.["x-dumbass-session"] ?? null,
+        checkpoint: ctx?.metadata?.continualHarness ?? null,
+        retrieval: { arms, reason, budgetTokens: budget, promptTokensEst: Math.ceil(promptChars / 4) },
+        note: "Plan only: no model was called. Resend without x-dumbass-plan-only to execute.",
+      },
+    };
+  }
   if (!query || !arms.length || budget <= 0) return { metadata: { retrievalPlanner: meta } };
 
   const settled = await Promise.allSettled(arms.map((a) => ARMS[a](query, cfg)));

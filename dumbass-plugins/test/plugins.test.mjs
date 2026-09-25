@@ -150,3 +150,14 @@ test("retrieval-planner: arm failures are reported, request still passes", async
     assert.equal(out.body, undefined);
   });
 });
+
+test("retrieval-planner: plan-only returns the route plan and blocks the model call", async () => {
+  await withConfig("retrieval-planner", {}, async (rp) => {
+    const out = await rp.onRequest(ctx({ headers: { "x-dumbass-plan-only": "true", "x-dumbass-session": "s9" },
+      body: { messages: [{ role: "user", content: "what calls requireAuth in src/auth.ts?" }] } }));
+    assert.equal(out.blocked, true);
+    assert.equal(out.response.object, "dumbass.plan");
+    assert.deepEqual(out.response.retrieval.arms, ["code"]);
+    assert.equal(out.response.session, "s9");
+  });
+});
