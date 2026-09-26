@@ -1,12 +1,12 @@
 // Reasoning Bank: append-only JSONL ledger of request trajectories.
 // Every record is a *candidate*. Promotion to a verified success (Success Verification Grade)
 // happens outside this plugin, only with evidence: CI green, merged PR, or operator acceptance.
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 
 // OmniRoute's loader forwards hook payloads verbatim and never injects ctx.config, so settings
 // come from ./config.json beside this file (defaults below when absent).
-const DEFAULTS = { enabled: true, dataDir: "/app/data/dumbass/reasoning_bank", excerptChars: 300 };
+const DEFAULTS = { enabled: true, dataDir: "/app/data/dumbass/reasoning_bank", handoffDir: "/app/data/dumbass/handoff", excerptChars: 300 };
 let cached;
 export async function settings() {
   if (!cached) {
@@ -60,16 +60,46 @@ export function toolCallNames(response) {
 }
 
 async function write(cfg, kind, record) {
+  if (!record.retrieval) record.retrieval = await takeHandoff(cfg, record.requestId);
   const dir = path.join(cfg.dataDir || "/app/data/dumbass/reasoning_bank", kind);
   await mkdir(dir, { recursive: true });
   const day = new Date().toISOString().slice(0, 10);
   await appendFile(path.join(dir, `${day}.jsonl`), JSON.stringify(record) + "\n");
 }
 
+// retrieval-planner loads after this plugin (name order), so its metadata arrives as a file.
+const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/;
+async function takeHandoff(cfg, requestId) {
+  if (!cfg.handoffDir || !SAFE_ID.test(String(requestId))) return null;
+  const file = path.join(cfg.handoffDir, `${requestId}.json`);
+  try {
+    const meta = JSON.parse(await readFile(file, "utf8"));
+    await unlink(file).catch(() => {});
+    return meta;
+  } catch {
+    return null;
+  }
+}
+
+const PRUNE_EVERY_MS = 10 * 60_000;
+const HANDOFF_TTL_MS = 60 * 60_000;
+let lastPrune = 0;
+async function pruneHandoffs(cfg) {
+  if (!cfg.handoffDir || Date.now() - lastPrune < PRUNE_EVERY_MS) return;
+  lastPrune = Date.now();
+  const names = await readdir(cfg.handoffDir).catch(() => []);
+  for (const n of names) {
+    const f = path.join(cfg.handoffDir, n);
+    const s = await stat(f).catch(() => null);
+    if (s && Date.now() - s.mtimeMs > HANDOFF_TTL_MS) await unlink(f).catch(() => {}); // requests that never finished
+  }
+}
+
 export async function onRequest(payload) {
   const { ctx } = unwrap(payload);
   const cfg = await settings();
   if (cfg.enabled === false || !ctx?.requestId) return;
+  pruneHandoffs(cfg).catch(() => {});
   if (open.size >= MAX_OPEN) open.delete(open.keys().next().value); // bound memory if responses never arrive
   const n = cfg.excerptChars ?? 300;
   open.set(ctx.requestId, {

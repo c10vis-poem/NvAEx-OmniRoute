@@ -1,12 +1,16 @@
 // Retrieval planner: retrieval is part of routing. Decide which arms a request needs, query them
 // in parallel, and inject the results under a budget scaled to the target model's context window.
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 const DEFAULTS = {
   enabled: true,
   mem0: { url: "http://mem0:8000", apiKey: "", userId: "operator", topK: 8 },
   terrestrialBrain: { url: "http://host.docker.internal:8000/mcp", key: "", limit: 8, threshold: 0.4 },
-  codeReviewGraph: { url: "http://host.docker.internal:5555/mcp", limit: 10 },
+  codeReviewGraph: { url: "http://host.docker.internal:5555/mcp", limit: 5, maxResults: 12 },
+  // Plugins load in name order on boot (src/lib/db/plugins.ts ORDER BY name), so reasoning-bank
+  // runs before this plugin and never sees its metadata; it reads this per-request file instead.
+  handoffDir: "/app/data/dumbass/handoff",
   timeoutMs: 4000,
   budgetShare: 0.25, // share of the model's context window available to retrieval
   reserveOutputTokens: 8000,
@@ -129,10 +133,25 @@ const ARMS = {
   },
   code: async (query, cfg) => {
     const c = cfg.codeReviewGraph;
-    const text = await mcpCall(c.url, {}, "semantic_search_nodes_tool", { query: query.slice(0, 500), limit: c.limit }, cfg.timeoutMs);
-    return text ? text.split(/\n{2,}/).filter((s) => s.trim()) : [];
+    // cross_repo_search matches node names; whole sentences only return noise, so search identifiers.
+    const q = codeTerms(query).join(" ") || query.slice(0, 200);
+    const data = JSON.parse(await mcpCall(c.url, {}, "cross_repo_search_tool", { query: q, limit: c.limit, max_results: c.maxResults }, cfg.timeoutMs));
+    if (data.status !== "ok") throw new Error(String(data.error || data.summary || "code-review-graph error").slice(0, 200));
+    return (data.results || []).map((r) => `${r.repo}/${path.relative(r.repo_path, r.file_path)}:${r.line_start} ${r.kind} ${r.name}${r.params ?? ""}`);
   },
 };
+/** camelCase / snake_case / dotted identifiers and file names in the prompt. */
+export function codeTerms(text) {
+  return [...new Set(text.match(/\b(?:[\w-]+\.(?:ts|tsx|js|mjs|py|rs|go|sh)|[a-z]+[A-Z]\w*|[A-Za-z]+_\w+|[A-Z][a-z]+[A-Z]\w*)\b/g) || [])].slice(0, 5);
+}
+
+const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/;
+async function handoff(cfg, requestId, meta) {
+  if (!cfg.handoffDir || !SAFE_ID.test(String(requestId))) return;
+  await mkdir(cfg.handoffDir, { recursive: true });
+  await writeFile(path.join(cfg.handoffDir, `${requestId}.json`), JSON.stringify(meta));
+}
+
 const LABEL = { memory: "mem0 (episodic memory)", corpus: "Terrestrial Brain (corpus)", code: "code-review-graph (code)" };
 
 /** Interleave arms in priority order and take chunks until the token budget is spent. */
@@ -192,7 +211,11 @@ export async function onRequest(payload) {
       },
     };
   }
-  if (!query || !arms.length || budget <= 0) return { metadata: { retrievalPlanner: meta } };
+  const done = async (out) => {
+    await handoff(cfg, ctx.requestId, meta).catch(() => {}); // ledger only; never fail the request
+    return out;
+  };
+  if (!query || !arms.length || budget <= 0) return done({ metadata: { retrievalPlanner: meta } });
 
   const settled = await Promise.allSettled(arms.map((a) => ARMS[a](query, cfg)));
   const results = {};
@@ -202,10 +225,10 @@ export async function onRequest(payload) {
   });
   const block = render(fitToBudget(results, arms, budget));
   meta.latencyMs = Date.now() - started;
-  if (!block) return { metadata: { retrievalPlanner: meta } };
+  if (!block) return done({ metadata: { retrievalPlanner: meta } });
   meta.injectedTokens = Math.ceil(block.length / 4);
-  return {
+  return done({
     body: { ...ctx.body, messages: [{ role: "system", content: block }, ...messages] },
     metadata: { retrievalPlanner: meta },
-  };
+  });
 }

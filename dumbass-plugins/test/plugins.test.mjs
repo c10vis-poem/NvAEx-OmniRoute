@@ -161,3 +161,55 @@ test("retrieval-planner: plan-only returns the route plan and blocks the model c
     assert.equal(out.response.session, "s9");
   });
 });
+
+test("retrieval-planner: codeTerms pulls identifiers and file names, not prose", async () => {
+  const rp = await import(`${pluginDir("retrieval-planner")}/index.mjs?t=${Date.now()}`);
+  assert.deepEqual(rp.codeTerms("what does fitToBudget in retrieval_planner.mjs call, and run_hook?"), ["fitToBudget", "retrieval_planner.mjs", "run_hook"]);
+  assert.deepEqual(rp.codeTerms("what did we decide about the VM?"), []);
+});
+
+test("retrieval-planner: code arm searches all repos and formats hits", async () => {
+  const { createServer } = await import("node:http");
+  let args;
+  const srv = createServer((req, res) => {
+    let b = "";
+    req.on("data", (c) => (b += c)).on("end", () => {
+      const msg = JSON.parse(b);
+      if (msg.method === "tools/call") args = msg.params;
+      const hits = { status: "ok", results: [{ repo: "r1", repo_path: "/x/r1", file_path: "/x/r1/src/a.ts", line_start: 7, kind: "Function", name: "fitToBudget", params: "(results)" }] };
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: JSON.stringify(hits) }] } }));
+    });
+  });
+  await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+  const dir = await mkdtemp(path.join(tmpdir(), "rp-"));
+  try {
+    await withConfig("retrieval-planner", { handoffDir: dir, codeReviewGraph: { url: `http://127.0.0.1:${srv.address().port}/mcp` } }, async (rp) => {
+      const out = await rp.onRequest(ctx({ body: { messages: [{ role: "user", content: "what does the function fitToBudget do?" }] } }));
+      assert.equal(args.name, "cross_repo_search_tool");
+      assert.equal(args.arguments.query, "fitToBudget");
+      assert.match(out.body.messages[0].content, /r1\/src\/a\.ts:7 Function fitToBudget\(results\)/);
+    });
+  } finally {
+    srv.close();
+    await rm(dir, { recursive: true });
+  }
+});
+
+test("reasoning-bank: records planner arms via handoff even though it runs first (name order)", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "rb-"));
+  const handoffDir = path.join(dir, "handoff");
+  await withConfig("reasoning-bank", { dataDir: dir, handoffDir }, async (rb) => {
+    await withConfig("retrieval-planner", { handoffDir, timeoutMs: 300, mem0: { url: "http://127.0.0.1:9", apiKey: "k" } }, async (rp) => {
+      await rb.onRequest(ctx()); // boot order: reasoning-bank < retrieval-planner
+      await rp.onRequest(ctx());
+      await rb.onResponse({ ctx: { ...ctx(), response: reply } });
+    });
+    const [file] = await readdir(path.join(dir, "candidates"));
+    const rec = JSON.parse((await readFile(path.join(dir, "candidates", file), "utf8")).trim());
+    assert.deepEqual(rec.retrieval.arms, ["memory"]);
+    assert.ok(rec.retrieval.errors.memory);
+    assert.deepEqual(await readdir(handoffDir), []); // consumed
+  });
+  await rm(dir, { recursive: true });
+});
