@@ -1,0 +1,19 @@
+{
+  "name": "continual-harness",
+  "version": "0.1.0",
+  "description": "Per-session working-state checkpoints: injects the session's latest checkpoint into each request and updates it from the response. Rollback via x-dumbass-checkpoint.",
+  "author": "c10vis-poem",
+  "license": "MIT",
+  "main": "index.mjs",
+  "source": "local",
+  "tags": ["dumbass", "session", "checkpoint"],
+  "hooks": { "onRequest": true, "onResponse": true },
+  "requires": { "permissions": ["file-read", "file-write"] },
+  "enabledByDefault": false,
+  "configSchema": {
+    "enabled": { "type": "boolean", "default": true, "description": "No-op when false" },
+    "dataDir": { "type": "string", "default": "/app/data/dumbass/checkpoints", "description": "Where checkpoint files live" },
+    "keepCheckpoints": { "type": "number", "default": 10, "min": 1, "max": 100, "description": "Checkpoints retained per session (rollback depth)" },
+    "maxCheckpointChars": { "type": "number", "default": 4000, "min": 500, "max": 50000, "description": "Size cap of the injected checkpoint block" }
+  }
+}
