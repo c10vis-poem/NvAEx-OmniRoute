@@ -10296,6 +10296,14 @@ paths:
       responses:
         "200":
           description: OK
+  /api/oauth/trae/authorize-state:
+    post:
+      tags:
+        - Oauth
+      summary: "POST oauth › trae › authorize state"
+      responses:
+        "200":
+          description: OK
   /api/oauth/trae/import:
     get:
       tags:
@@ -12567,9 +12575,17 @@ paths:
       tags:
         - Usage
       summary: "POST usage › token limits"
+      description: >-
+        Save a per-key token limit. A key holds one limit per scope and reset interval, so daily,
+        weekly and monthly limits for the same scope coexist. Without `id`, a new limit is added (or
+        the key's limit for the same scope and interval is updated); with `id`, that limit is updated.
       responses:
         "200":
           description: OK
+        "404":
+          description: No token limit with the given `id`.
+        "409":
+          description: The update would take another limit's scope and reset interval.
   /api/usage/utilization:
     get:
       tags:
@@ -13293,6 +13309,7 @@ paths:
       tags:
         - Version manager
       summary: "POST version manager › install"
+      x-loopback-only: true
       responses:
         "200":
           description: OK
@@ -13301,6 +13318,7 @@ paths:
       tags:
         - Version manager
       summary: "POST version manager › restart"
+      x-loopback-only: true
       responses:
         "200":
           description: OK
@@ -13309,6 +13327,7 @@ paths:
       tags:
         - Version manager
       summary: "POST version manager › start"
+      x-loopback-only: true
       responses:
         "200":
           description: OK
@@ -13325,6 +13344,7 @@ paths:
       tags:
         - Version manager
       summary: "POST version manager › stop"
+      x-loopback-only: true
       responses:
         "200":
           description: OK

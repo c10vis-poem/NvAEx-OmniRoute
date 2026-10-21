@@ -24,6 +24,7 @@
     "config/i18n.json",
     ".npmrc",
     "scripts/build/postinstall.mjs",
+    "scripts/build/betterSqlitePrebuildTarget.mjs",
     "scripts/build/fixPlaywrightAndroid.mjs",
     "bin/cli/runtime/",
     "scripts/postinstall.mjs",
@@ -32,6 +33,7 @@
     "scripts/build/colocateOptionals.mjs",
     "scripts/build/sync-env.mjs",
     "scripts/dev/responses-ws-proxy.mjs",
+    "scripts/dev/peer-stamp.mjs",
     "scripts/dev/tls-options.mjs",
     "scripts/check/check-supported-node-runtime.ts",
     "scripts/dev/sync-env.mjs",
@@ -373,7 +375,7 @@
     "tsx": "^4.23.13",
     "turndown": "7.2.4",
     "turndown-plugin-gfm": "1.0.2",
-    "undici": "^8.10.0",
+    "undici": "^8.11.2",
     "update-notifier": "^7.3.1",
     "uuid": "^14.0.2",
     "ws": "^8.21.3",
@@ -489,7 +491,7 @@
     "fast-xml-parser": "^5.10.1",
     "sharp": "^0.35.4",
     "postcss": "^8.5.18",
-    "ip-address": "^10.3.1",
+    "ip-address": "^10.7.2",
     "qs": "^6.16.0",
     "uuid": "^14.0.2",
     "form-data": "^4.0.6",
@@ -518,7 +520,7 @@
     "adm-zip": "^0.6.1",
     "promptfoo": {
       "js-yaml": "^5.2.2",
-      "undici": "^7.29.0"
+      "undici@7": "^7.29.0"
     },
     "socket.io-parser": "^4.2.7",
     "tar": "^7.5.21",
@@ -528,7 +530,7 @@
       }
     },
     "rimraf": {
-      "minimatch": {
+      "minimatch@9": {
         "brace-expansion": "^2.1.4"
       }
     },

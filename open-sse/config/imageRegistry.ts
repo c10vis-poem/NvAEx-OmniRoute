@@ -5,6 +5,7 @@
  * Each provider has its own request format and endpoint.
  */
 
+import { hasUnsafeModelIdSyntax } from "../utils/modelIdSafety.ts";
 import { LMARENA_DIRECT_IMAGE_MODELS } from "./providers/registry/lmarena/directModels.ts";
 import { SEGMIND_IMAGE_PROVIDER } from "./providers/registry/segmind/imageModels.ts";
 import { KIE_IMAGE_MODELS } from "./providers/registry/kie/imageModels.ts";
@@ -403,25 +404,6 @@ export const IMAGE_PROVIDERS: Record<string, ImageProviderConfig> = {
     authHeader: "bearer",
     format: "gemini-image", // Special format: uses Gemini generateContent API
     models: [{ id: "gemini-3.1-flash-image", name: "Gemini 3.1 Flash Image" }],
-    supportedSizes: ["1024x1024"],
-  },
-
-  // #14545 — reuses the "gemini" apikey provider id (already registered for chat,
-  // src/shared/constants/providers/apikey/frontier-labs.ts) and the same
-  // generativelanguage.googleapis.com OpenAI-compatible images endpoint that
-  // open-sse/handlers/imageGeneration.ts's synthetic-provider fallback already
-  // calls successfully for unregistered providers — direct calls worked, but the
-  // static registry had no entry, so the combo/catalog path silently dropped them.
-  gemini: {
-    id: "gemini",
-    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/images/generations",
-    authType: "apikey",
-    authHeader: "bearer",
-    format: "openai",
-    models: [
-      { id: "gemini-3-pro-image", name: "Gemini 3 Pro Image" },
-      { id: "gemini-3.1-flash-image", name: "Gemini 3.1 Flash Image" },
-    ],
     supportedSizes: ["1024x1024"],
   },
 
@@ -986,7 +968,7 @@ export function getImageProvider(providerId) {
  * Returns { provider, model }
  */
 export function parseImageModel(modelStr) {
-  if (!modelStr) return { provider: null, model: null };
+  if (!modelStr || hasUnsafeModelIdSyntax(modelStr)) return { provider: null, model: null };
 
   const directAlias = resolveImageModelAlias(modelStr);
   if (directAlias) {
